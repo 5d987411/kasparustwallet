@@ -1,5 +1,5 @@
-use anyhow::Result;
-use secp256k1::{ecdsa::Signature, Message, PublicKey, Secp256k1, SecretKey};
+use crate::error::WalletError;
+use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -48,7 +48,7 @@ impl Transaction {
         self.outputs.push(TxOutput { address, amount });
     }
 
-    pub fn serialize(&self) -> Result<Vec<u8>> {
+    pub fn serialize(&self) -> Result<Vec<u8>, WalletError> {
         let mut buffer = Vec::new();
 
         buffer.extend_from_slice(&self.version.to_le_bytes());
@@ -73,7 +73,7 @@ impl Transaction {
         Ok(buffer)
     }
 
-    pub fn get_signature_hash(&self, input_index: usize) -> Result<Vec<u8>> {
+    pub fn get_signature_hash(&self, input_index: usize) -> Result<Vec<u8>, WalletError> {
         let mut tx_copy = self.clone();
 
         for (i, input) in tx_copy.inputs.iter_mut().enumerate() {
@@ -98,9 +98,11 @@ impl Transaction {
         input_index: usize,
         secret_key: &SecretKey,
         public_key: &PublicKey,
-    ) -> Result<()> {
+    ) -> Result<(), WalletError> {
         if input_index >= self.inputs.len() {
-            return Err(anyhow::anyhow!("Input index out of bounds"));
+            return Err(crate::error::WalletError::Transaction(
+                "Input index out of bounds".to_string(),
+            ));
         }
 
         let signature_hash = self.get_signature_hash(input_index)?;
@@ -116,12 +118,35 @@ impl Transaction {
     }
 
     pub fn estimate_fee(&self, fee_rate: u64) -> u64 {
-        let base_size = 10; // version + lock_time + input/output counts
-        let input_size = 32 + 4 + 73 + 33; // txid + vout + signature + pubkey
-        let output_size = 8 + 1 + 34; // amount + address_length + address
+        let base_size = 10;
+        let input_size = 32 + 4 + 73 + 33;
+        let output_size = 8 + 1 + 34;
 
         let total_size =
             base_size + (self.inputs.len() * input_size) + (self.outputs.len() * output_size);
-        (total_size as u64 + 999) / 1000 * fee_rate // ceil division
+        (total_size as u64 + 999) / 1000 * fee_rate
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_transaction_creation() {
+        let tx = Transaction::new();
+        assert_eq!(tx.version, 1);
+        assert!(tx.inputs.is_empty());
+        assert!(tx.outputs.is_empty());
+    }
+
+    #[test]
+    fn test_add_input_output() {
+        let mut tx = Transaction::new();
+        tx.add_input("abc123".to_string(), 0);
+        tx.add_output("kaspa:xyz".to_string(), 1000);
+
+        assert_eq!(tx.inputs.len(), 1);
+        assert_eq!(tx.outputs.len(), 1);
     }
 }

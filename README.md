@@ -1,57 +1,103 @@
 # Kaspa Rust Wallet (kasparustwallet)
 
-A Rust implementation of a Kaspa cryptocurrency wallet, inspired by the official [rusty-kaspa](https://github.com/kaspanet/rusty-kaspa) project.
+A Rust implementation of a Kaspa cryptocurrency wallet with CLI and GUI interfaces, inspired by the official [rusty-kaspa](https://github.com/kaspanet/rusty-kaspa) project.
 
 ## Features
 
+### CLI Features
 - ✅ Generate new Kaspa wallets (private/public key pairs)
 - ✅ Generate Kaspa addresses (P2PKH format)
 - ✅ Create and sign transactions
 - ✅ Estimate transaction fees
 - ✅ Validate addresses
-- ✅ CLI interface for easy wallet operations
 - ✅ Support for different Kaspa networks (mainnet, testnet, etc.)
+
+### GUI Features
+- ✅ Modern native GUI using Iced framework
+- ✅ Wallet creation and loading
+- ✅ View wallet information (address, public key)
+- ✅ Generate new addresses
+- ✅ Copy address/public key to clipboard
+- ✅ Validate addresses with paste support
+- ✅ Support for Mainnet, Testnet-10, Testnet-11, and Simnet
+- ✅ Multi-tab interface (Overview, Send, Receive, Settings)
 
 ## Installation
 
 ### Prerequisites
 
-- Rust 1.70+ 
+- Rust 1.70+
 - Git
+- For Linux: xclip (for clipboard support)
+  ```bash
+  sudo apt install xclip
+  ```
 
 ### Build from source
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/5d987411/kasparustwallet.git
 cd kasparustwallet
 cargo build --release
+```
 
 The compiled binary will be available at `target/release/kasparustwallet`.
 
 ## Usage
 
-### Create a new wallet
+### GUI Mode (Recommended)
+
+Launch the graphical wallet interface:
+
+```bash
+./kasparustwallet gui
+```
+
+#### GUI Features:
+
+**Overview Tab**
+- View wallet address and public key
+- Copy address/public key with one click
+
+**Send Tab**
+- Add multiple transaction recipients
+- Specify amount in sompi (1 KAS = 100,000,000 sompi)
+- Create and sign transactions
+
+**Receive Tab**
+- Generate new wallet addresses
+- Copy address and public key
+- Validate any Kaspa address using the paste button
+
+**Settings Tab**
+- Select network (Mainnet/Testnet-10/Testnet-11/Simnet)
+- Load existing wallet by private key
+- Create new wallet
+
+### CLI Mode
+
+#### Create a new wallet
 ```bash
 ./kasparustwallet new --network mainnet
 
 # Create wallet for testnet
-./kaspa-wallet new --network testnet-10
+./kasparustwallet new --network testnet-10
 
 # Save wallet info to file
-./kaspa-wallet new --network mainnet --output wallet.txt
+./kasparustwallet new --network mainnet --output wallet.txt
 ```
 
-### Show wallet information
+#### Show wallet information
 ```bash
 ./kasparustwallet info --private-key <private_key_hex> --network mainnet
 ```
 
-### Generate address
+#### Generate address
 ```bash
 ./kasparustwallet address --private-key <private_key_hex> --network mainnet
 ```
 
-### Create a transaction
+#### Create a transaction
 ```bash
 ./kasparustwallet send \
     --private-key <private_key_hex> \
@@ -71,12 +117,12 @@ Example:
     --fee-rate 1000
 ```
 
-### Estimate transaction fee
+#### Estimate transaction fee
 ```bash
 ./kasparustwallet estimate-fee --inputs 2 --outputs 1 --fee-rate 1000
 ```
 
-### Validate address
+#### Validate address
 ```bash
 ./kasparustwallet validate-address --address "kaspa:qqpet37fwqlql7q4jczr7zj7qp5ylps2r2c0ynz6jjf368sdjnztufeghvc9x"
 ```
@@ -180,9 +226,11 @@ Supported networks:
 - `bs58` - Base58 encoding/decoding
 - `serde` - JSON serialization
 - `clap` - Command line argument parsing
-- `anyhow` - Error handling
+- `thiserror` - Error handling
 - `hex` - Hex encoding/decoding
 - `rand` - Cryptographic random number generation
+- `iced` - GUI framework
+- `arboard` - Cross-platform clipboard support
 
 ## Testing
 
