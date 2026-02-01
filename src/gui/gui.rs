@@ -6,6 +6,12 @@ use iced::{Element, Length};
 use secp256k1::SecretKey;
 use std::fmt;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Tab {
+    Send,
+    Receive,
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     PrivateKeyInput(String),
@@ -56,14 +62,6 @@ impl NetworkOption {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Tab {
-    Overview,
-    Send,
-    Receive,
-    Settings,
-}
-
 #[derive(Debug, Clone)]
 pub struct OutputRow {
     pub address: String,
@@ -101,7 +99,7 @@ impl WalletGui {
             private_key: String::new(),
             network: NetworkOption::Mainnet,
             wallet: None,
-            current_tab: Tab::Overview,
+            current_tab: Tab::Send,
             recipient: String::new(),
             amount: String::new(),
             outputs: Vec::new(),
@@ -270,8 +268,9 @@ fn update(state: &mut WalletGui, message: Message) {
                 .outputs
                 .iter()
                 .map(|o| {
-                    let amount: u64 = o.amount.parse().unwrap_or(0);
-                    Ok::<(String, u64), ()>((o.address.clone(), amount))
+                    let amount_kas: f64 = o.amount.parse().unwrap_or(0.0);
+                    let amount_sompi = (amount_kas * 100_000_000.0) as u64;
+                    Ok::<(String, u64), ()>((o.address.clone(), amount_sompi))
                 })
                 .collect();
             match parsed_outputs {
@@ -309,17 +308,29 @@ fn update(state: &mut WalletGui, message: Message) {
         Message::AddOutput => {
             if !state.recipient.is_empty() && !state.amount.is_empty() {
                 if validate_address(&state.recipient).unwrap_or(false) {
-                    state.outputs.push(OutputRow {
-                        address: state.recipient.clone(),
-                        amount: state.amount.clone(),
-                    });
-                    state.recipient.clear();
-                    state.amount.clear();
-                    state.status_message = format!(
-                        "Added output {} ({} outputs total)",
-                        state.outputs.len() - 1,
-                        state.outputs.len()
-                    );
+                    match state.amount.parse::<f64>() {
+                        Ok(amount_kas) if amount_kas > 0.0 => {
+                            let amount_sompi = (amount_kas * 100_000_000.0) as u64;
+                            state.outputs.push(OutputRow {
+                                address: state.recipient.clone(),
+                                amount: format!("{} KAS ({})", amount_kas, amount_sompi),
+                            });
+                            state.recipient.clear();
+                            state.amount.clear();
+                            state.status_message = format!(
+                                "Added output {} ({} outputs total)",
+                                state.outputs.len() - 1,
+                                state.outputs.len()
+                            );
+                        }
+                        Ok(_) => {
+                            state.status_message = "Amount must be greater than 0".to_string();
+                        }
+                        Err(_) => {
+                            state.status_message =
+                                "Invalid amount format. Use decimal (e.g., 1.5)".to_string();
+                        }
+                    }
                 } else {
                     state.status_message = "Invalid recipient address".to_string();
                 }
@@ -388,8 +399,7 @@ fn update(state: &mut WalletGui, message: Message) {
             if state.copy_public_key_text.is_empty() {
                 state.status_message = "No public key to copy".to_string();
             } else {
-                let pk_with_prefix = format!("kaspa:pk:{}", state.copy_public_key_text);
-                if set_clipboard_text(&pk_with_prefix) {
+                if set_clipboard_text(&state.copy_public_key_text) {
                     state.status_message = "Public key copied to clipboard!".to_string();
                 } else {
                     state.status_message = "Copy failed".to_string();
@@ -410,14 +420,53 @@ fn view(state: &WalletGui) -> Element<Message> {
         NetworkOption::Simnet,
     ];
 
+    let wallet_info = if let Some(wallet) = &state.wallet {
+        let pk_with_prefix = format!("kaspa:pk:{}", &wallet.public_key);
+        let pk_display = pk_with_prefix.clone();
+        column![
+            text("Wallet Information").size(20),
+            text("Address:").size(14),
+            row![
+                text(&wallet.address).size(14).width(Length::Fill),
+                button("Copy").on_press(Message::CopyAddress),
+            ],
+            text("Network:").size(14),
+            text(&wallet.network_name).size(14),
+            text("Public Key:").size(14),
+            row![
+                text(pk_display).size(12).width(Length::Fill),
+                button("Copy").on_press(Message::CopyPublicKey),
+            ],
+        ]
+    } else {
+        column![
+            text("No wallet loaded").size(20),
+            text("Create a new wallet or load an existing one below").size(14),
+        ]
+    };
+
+    let settings_info = column![
+        text("Wallet Settings").size(20),
+        text("Network:").size(14),
+        pick_list(
+            networks,
+            Some(state.network.clone()),
+            Message::NetworkSelected
+        ),
+        text("Private Key:").size(14),
+        text_input("Enter private key (hex)", &state.private_key)
+            .on_input(Message::PrivateKeyInput),
+        row![
+            button("Load Wallet").on_press(Message::LoadWallet),
+            button("Create New Wallet").on_press(Message::CreateWallet),
+        ]
+        .spacing(10),
+        text("Warning: Never share your private key!").size(12),
+    ];
+
+    let combined_section = column![wallet_info, text("---").size(12), settings_info,].spacing(15);
+
     let tab_row = row![
-        button("Overview")
-            .on_press(Message::TabSelected(Tab::Overview))
-            .style(if state.current_tab == Tab::Overview {
-                button::primary
-            } else {
-                button::secondary
-            }),
         button("Send")
             .on_press(Message::TabSelected(Tab::Send))
             .style(if state.current_tab == Tab::Send {
@@ -432,21 +481,12 @@ fn view(state: &WalletGui) -> Element<Message> {
             } else {
                 button::secondary
             }),
-        button("Settings")
-            .on_press(Message::TabSelected(Tab::Settings))
-            .style(if state.current_tab == Tab::Settings {
-                button::primary
-            } else {
-                button::secondary
-            }),
     ]
     .spacing(10);
 
     let content: Column<Message> = match state.current_tab {
-        Tab::Overview => view_overview(state),
         Tab::Send => view_send(state),
         Tab::Receive => view_receive(state),
-        Tab::Settings => view_settings(state, networks),
     };
 
     let status_bar = if !state.status_message.is_empty() {
@@ -458,6 +498,7 @@ fn view(state: &WalletGui) -> Element<Message> {
     Container::new(
         column![
             text("KaspaRustWallet").size(24),
+            combined_section,
             tab_row,
             content,
             status_bar,
@@ -472,35 +513,6 @@ fn view(state: &WalletGui) -> Element<Message> {
     .into()
 }
 
-fn view_overview(state: &WalletGui) -> Column<Message> {
-    let wallet_info = if let Some(wallet) = &state.wallet {
-        column![
-            text("Wallet Information").size(18),
-            text("Address:").size(14),
-            row![
-                text(&wallet.address).size(14).width(Length::Fill),
-                button("Copy").on_press(Message::CopyAddress),
-            ],
-            text("Network:").size(14),
-            text(&wallet.network_name).size(14),
-            text("Public Key:").size(14),
-            row![
-                text(format!("kaspa:pk:{}", &wallet.public_key))
-                    .size(12)
-                    .width(Length::Fill),
-                button("Copy").on_press(Message::CopyPublicKey),
-            ],
-        ]
-    } else {
-        column![
-            text("No wallet loaded").size(18),
-            text("Enter your private key or create a new wallet in Settings"),
-        ]
-    };
-
-    column![text("Overview").size(20), wallet_info,]
-}
-
 fn view_send(state: &WalletGui) -> Column<Message> {
     let outputs_list: Column<Message> = if state.outputs.is_empty() {
         column![text("No outputs added yet")]
@@ -513,7 +525,7 @@ fn view_send(state: &WalletGui) -> Column<Message> {
                 col.push(
                     row![
                         text(format!("{}: {}", idx, output.address)),
-                        text(output.amount.clone()),
+                        text(&output.amount),
                         button("Remove").on_press(Message::RemoveOutput(idx)),
                     ]
                     .spacing(10),
@@ -523,11 +535,15 @@ fn view_send(state: &WalletGui) -> Column<Message> {
 
     column![
         text("Send Transaction").size(20),
-        text("Add recipients:"),
+        text("Add recipients:").size(14),
         row![
-            text_input("Recipient address", &state.recipient).on_input(Message::RecipientInput),
-            text_input("Amount (sompi)", &state.amount).on_input(Message::AmountInput),
-            button("Add Output").on_press(Message::AddOutput),
+            text_input("Recipient address", &state.recipient)
+                .on_input(Message::RecipientInput)
+                .width(Length::Fill),
+            text_input("Amount (KAS)", &state.amount)
+                .on_input(Message::AmountInput)
+                .width(Length::Fill),
+            button("Add").on_press(Message::AddOutput),
         ]
         .spacing(10),
         outputs_list,
@@ -536,6 +552,7 @@ fn view_send(state: &WalletGui) -> Column<Message> {
             button("Clear All").on_press(Message::ClearOutputs),
         ]
         .spacing(10),
+        text("Note: Amount is in KAS. 1 KAS = 100,000,000 sompi").size(12),
     ]
 }
 
@@ -607,26 +624,5 @@ fn view_receive(state: &WalletGui) -> Column<Message> {
         } else {
             text("")
         },
-    ]
-}
-
-fn view_settings(state: &WalletGui, networks: Vec<NetworkOption>) -> Column<Message> {
-    column![
-        text("Settings").size(20),
-        text("Network:"),
-        pick_list(
-            networks,
-            Some(state.network.clone()),
-            Message::NetworkSelected
-        ),
-        text("Private Key:").size(14),
-        text_input("Enter private key (hex)", &state.private_key)
-            .on_input(Message::PrivateKeyInput),
-        row![
-            button("Load Wallet").on_press(Message::LoadWallet),
-            button("Create New Wallet").on_press(Message::CreateWallet),
-        ]
-        .spacing(10),
-        text("Warning: Never share your private key!").size(12),
     ]
 }
